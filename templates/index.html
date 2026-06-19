@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Automated Resume Parser — Extract & Store Resume Data</title>
+  <meta name="description"
+        content="Upload a PDF resume and instantly extract name, email, phone, skills, education and work experience. Records are saved to a local SQLite database." />
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+
+<div class="container">
+
+  <!-- ── Header ─────────────────────────────────────────────────── -->
+  <header>
+    <div class="logo">
+      <!-- document icon -->
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+        <polyline points="10 9 9 9 8 9"/>
+      </svg>
+      Resume Parser
+    </div>
+    <h1>Automated Resume Parser</h1>
+    <p>Upload a PDF resume and instantly extract structured information — saved automatically to your database.</p>
+  </header>
+
+  <!-- ── Upload Card ─────────────────────────────────────────────── -->
+  <div class="card" id="upload-card">
+
+    <div class="section-title">Upload Resume</div>
+
+    <!-- Drop Zone -->
+    <div id="upload-zone" role="button" aria-label="Upload resume PDF"
+         tabindex="0" ondragover="handleDragOver(event)" ondrop="handleDrop(event)"
+         ondragleave="handleDragLeave()">
+      <input type="file" id="file-input" accept=".pdf" aria-label="Choose PDF file"
+             onchange="handleFileSelect(this)" />
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+           stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="16 16 12 12 8 16"/>
+        <line x1="12" y1="12" x2="12" y2="21"/>
+        <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+      </svg>
+      <p><strong>Drag &amp; drop</strong> your PDF here, or <strong>click to browse</strong></p>
+      <p style="margin-top:.4rem;font-size:.82rem;color:var(--text-3)">PDF only · Max 5 MB</p>
+    </div>
+
+    <!-- File chip (selected file indicator) -->
+    <div id="file-chip">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+      </svg>
+      <span id="chip-name">file.pdf</span>
+      <button onclick="clearFile()" aria-label="Remove file">✕</button>
+    </div>
+
+    <!-- Parse Button -->
+    <button class="btn btn-primary" id="parse-btn" onclick="uploadResume()" disabled>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      Parse Resume
+    </button>
+
+    <!-- Progress -->
+    <div id="progress-wrap"><div id="progress-bar"></div></div>
+
+    <!-- Toast -->
+    <div id="toast" role="alert"></div>
+
+  </div><!-- /.card -->
+
+  <!-- ── Result Panel ─────────────────────────────────────────────── -->
+  <div id="result-panel">
+    <div class="card">
+      <div class="result-header">
+        <h2>Extracted Information</h2>
+        <span class="badge badge-success">
+          ✓ Parsed &amp; Saved
+        </span>
+        <span id="result-filename"
+              style="font-size:.82rem;color:var(--text-3);margin-left:auto"></span>
+      </div>
+
+      <!-- Core fields grid -->
+      <div class="section-title">Contact Details</div>
+      <div class="fields-grid" id="core-fields"></div>
+
+      <!-- Skills -->
+      <div class="section-title" style="margin-top:1.25rem">Skills</div>
+      <div class="card field-card" style="margin-bottom:1.25rem">
+        <div class="field-label"><span>🛠️</span> Skills Detected</div>
+        <div id="skills-output" class="skills-wrap"></div>
+      </div>
+
+      <!-- Education & Experience -->
+      <div class="section-title">Background</div>
+      <div class="fields-grid">
+        <div class="field-card field-long">
+          <div class="field-label"><span>🎓</span> Education</div>
+          <div class="field-value" id="edu-output"></div>
+        </div>
+        <div class="field-card field-long">
+          <div class="field-label"><span>💼</span> Work Experience</div>
+          <div class="field-value" id="exp-output"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── History Section ─────────────────────────────────────────── -->
+  <div id="history-section">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <polyline points="12 8 12 12 14 14"/>
+        <path d="M3.05 11a9 9 0 1 0 .5-3"/>
+        <polyline points="3 4 3 11 10 11"/>
+      </svg>
+      Recent Records
+    </h2>
+
+    <div class="card" id="history-card">
+      {% if records %}
+      <div class="table-wrap">
+        <table id="history-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>File</th>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>Skills</th>
+              <th>Uploaded</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="history-tbody">
+            {% for r in records %}
+            <tr id="row-{{ r.id }}">
+              <td>{{ r.id }}</td>
+              <td>{{ r.filename }}</td>
+              <td>{{ r.name or '—' }}</td>
+              <td>{{ r.email or '—' }}</td>
+              <td>{{ r.phone or '—' }}</td>
+              <td class="td-skills" title="{{ r.skills }}">{{ r.skills or '—' }}</td>
+              <td>{{ r.uploaded_at }}</td>
+              <td>
+                <button class="btn btn-danger-sm"
+                        onclick="deleteRecord({{ r.id }})" aria-label="Delete record">
+                  Delete
+                </button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="history-empty" id="history-empty">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+             style="margin-bottom:.75rem;opacity:.4">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+        </svg>
+        <p>No resumes parsed yet. Upload your first one above!</p>
+      </div>
+      {% endif %}
+    </div>
+
+  </div><!-- /#history-section -->
+
+</div><!-- /.container -->
+
+<footer>
+  <p>Automated Resume Parser · Built with Flask, PDFPlumber &amp; SQLite ·
+     <a href="https://github.com/" target="_blank" rel="noopener">View on GitHub</a>
+  </p>
+</footer>
+
+<!-- ── JavaScript ──────────────────────────────────────────────────────────── -->
+<script>
+  /* ── State ── */
+  let selectedFile = null;
+
+  /* ── Drag-and-drop helpers ── */
+  function handleDragOver(e) {
+    e.preventDefault();
+    document.getElementById('upload-zone').classList.add('drag-over');
+  }
+  function handleDragLeave() {
+    document.getElementById('upload-zone').classList.remove('drag-over');
+  }
+  function handleDrop(e) {
+    e.preventDefault();
+    handleDragLeave();
+    const file = e.dataTransfer.files[0];
+    if (file) setFile(file);
+  }
+  function handleFileSelect(input) {
+    if (input.files[0]) setFile(input.files[0]);
+  }
+
+  function setFile(file) {
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      showToast('error', '❌ Only PDF files are accepted.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('error', '❌ File exceeds 5 MB limit.');
+      return;
+    }
+    selectedFile = file;
+    document.getElementById('chip-name').textContent = file.name;
+    document.getElementById('file-chip').classList.add('visible');
+    document.getElementById('parse-btn').disabled = false;
+    hideToast();
+    hideResult();
+  }
+
+  function clearFile() {
+    selectedFile = null;
+    document.getElementById('file-input').value = '';
+    document.getElementById('file-chip').classList.remove('visible');
+    document.getElementById('parse-btn').disabled = true;
+    hideToast();
+    hideResult();
+  }
+
+  /* ── Upload & parse ── */
+  async function uploadResume() {
+    if (!selectedFile) return;
+
+    const btn      = document.getElementById('parse-btn');
+    const progress = document.getElementById('progress-wrap');
+    const bar      = document.getElementById('progress-bar');
+
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner"></div> Parsing…';
+    progress.classList.add('visible');
+    bar.style.width = '15%';
+    hideToast();
+    hideResult();
+
+    const formData = new FormData();
+    formData.append('resume', selectedFile);
+
+    // Fake progress animation
+    let prog = 15;
+    const ticker = setInterval(() => {
+      prog = Math.min(prog + Math.random() * 12, 85);
+      bar.style.width = prog + '%';
+    }, 300);
+
+    try {
+      const res  = await fetch('/upload', { method: 'POST', body: formData });
+      const data = await res.json();
+
+      clearInterval(ticker);
+      bar.style.width = '100%';
+      await delay(400);
+      progress.classList.remove('visible');
+      bar.style.width = '0%';
+
+      if (!res.ok || data.error) {
+        showToast('error', '❌ ' + (data.error || 'Upload failed.'));
+      } else {
+        showToast('success', '✅ Resume parsed and saved successfully!');
+        renderResult(data);
+        addTableRow(data);
+      }
+    } catch (err) {
+      clearInterval(ticker);
+      progress.classList.remove('visible');
+      bar.style.width = '0%';
+      showToast('error', '❌ Network error. Please try again.');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = `
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        Parse Resume`;
+    }
+  }
+
+  /* ── Render extracted result ── */
+  function renderResult(d) {
+    document.getElementById('result-filename').textContent = d.filename;
+
+    // Core fields
+    const coreEl = document.getElementById('core-fields');
+    coreEl.innerHTML = '';
+    const coreFields = [
+      { icon: '👤', label: 'Full Name',    value: d.name  },
+      { icon: '✉️',  label: 'Email',       value: d.email },
+      { icon: '📞', label: 'Phone Number', value: d.phone },
+    ];
+    coreFields.forEach(f => {
+      const notFound = !f.value || f.value === 'Not Found';
+      coreEl.insertAdjacentHTML('beforeend', `
+        <div class="field-card">
+          <div class="field-label"><span>${f.icon}</span> ${f.label}</div>
+          <div class="field-value ${notFound ? 'not-found' : ''}">${notFound ? 'Not detected' : escHtml(f.value)}</div>
+        </div>`);
+    });
+
+    // Skills
+    const skillsEl = document.getElementById('skills-output');
+    skillsEl.innerHTML = '';
+    if (d.skills && d.skills !== 'Not Found') {
+      d.skills.split(', ').forEach(s => {
+        const chip = document.createElement('span');
+        chip.className = 'skill-chip';
+        chip.textContent = s;
+        skillsEl.appendChild(chip);
+      });
+    } else {
+      skillsEl.innerHTML = '<span class="field-value not-found">No skills detected</span>';
+    }
+
+    // Education & Experience
+    setLongField('edu-output', d.education);
+    setLongField('exp-output', d.experience);
+
+    document.getElementById('result-panel').classList.add('visible');
+    document.getElementById('result-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function setLongField(id, value) {
+    const el = document.getElementById(id);
+    const notFound = !value || value === 'Not Found';
+    el.textContent = notFound ? 'Not detected' : value;
+    el.className   = 'field-value' + (notFound ? ' not-found' : '');
+  }
+
+  /* ── History table ── */
+  function addTableRow(d) {
+    // Remove "empty" placeholder if present
+    const empty = document.getElementById('history-empty');
+    if (empty) empty.remove();
+
+    let tbody = document.getElementById('history-tbody');
+    if (!tbody) {
+      // Table doesn't exist yet — build it
+      const card = document.getElementById('history-card');
+      card.innerHTML = `
+        <div class="table-wrap">
+          <table id="history-table">
+            <thead><tr>
+              <th>#</th><th>File</th><th>Name</th><th>Email</th>
+              <th>Phone</th><th>Skills</th><th>Uploaded</th><th></th>
+            </tr></thead>
+            <tbody id="history-tbody"></tbody>
+          </table>
+        </div>`;
+      tbody = document.getElementById('history-tbody');
+    }
+
+    const tr = document.createElement('tr');
+    tr.id    = 'row-' + d.id;
+    tr.innerHTML = `
+      <td>${d.id}</td>
+      <td>${escHtml(d.filename)}</td>
+      <td>${escHtml(d.name || '—')}</td>
+      <td>${escHtml(d.email || '—')}</td>
+      <td>${escHtml(d.phone || '—')}</td>
+      <td class="td-skills" title="${escHtml(d.skills || '')}">${escHtml(d.skills || '—')}</td>
+      <td>${escHtml(d.uploaded_at || '')}</td>
+      <td><button class="btn btn-danger-sm" onclick="deleteRecord(${d.id})">Delete</button></td>`;
+    tbody.insertBefore(tr, tbody.firstChild);
+  }
+
+  /* ── Delete record ── */
+  async function deleteRecord(id) {
+    if (!confirm('Delete this record?')) return;
+    try {
+      const res = await fetch('/delete/' + id, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        const row = document.getElementById('row-' + id);
+        if (row) {
+          row.style.transition = 'opacity .3s ease, transform .3s ease';
+          row.style.opacity = '0';
+          row.style.transform = 'translateX(20px)';
+          setTimeout(() => row.remove(), 320);
+        }
+      }
+    } catch (e) {
+      alert('Could not delete record. Please try again.');
+    }
+  }
+
+  /* ── UI helpers ── */
+  function showToast(type, msg) {
+    const el = document.getElementById('toast');
+    el.className = 'visible ' + type;
+    el.textContent = msg;
+  }
+  function hideToast() {
+    document.getElementById('toast').className = '';
+  }
+  function hideResult() {
+    document.getElementById('result-panel').classList.remove('visible');
+  }
+  function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  /* ── Keyboard accessibility for upload zone ── */
+  document.getElementById('upload-zone').addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      document.getElementById('file-input').click();
+    }
+  });
+</script>
+
+</body>
+</html>
